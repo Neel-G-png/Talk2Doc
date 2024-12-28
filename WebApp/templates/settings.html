@@ -1,0 +1,30 @@
+
+{% extends "base.html" %}
+
+{% block title %}Settings{% endblock %}
+
+{% block content %}
+<h1>Settings</h1>
+<h2>Gmail Integration</h2>
+{% if gmail_authorized %}
+<p>Gmail is authorized. <a href="{{ url_for('revoke_gmail') }}">Revoke access</a></p>
+{% else %}
+<p>Gmail is not authorized. <a href="{{ url_for('login') }}">Authorize Gmail</a></p>
+{% endif %}
+
+<h2>Notion Integration</h2>
+{% if notion_authorized %}
+<p>Notion is authorized. <a href="{{ url_for('revoke_notion') }}">Revoke access</a></p>
+{% else %}
+<p>Notion is not authorized.</p>
+<form action="{{ url_for('authorize_notion') }}" method="post">
+    <label for="notion_token">Notion Secrets:</label>
+    <input type="text" id="notion_token" name="notion_token" required><br><br>
+    <label for="notion_job_application_page">Notion Job Application Page ID:</label>
+    <input type="text" id="notion_job_application_page" name="notion_job_application_page"><br><br>
+    <label for="notion_notes_page">Notion Notes Page ID:</label>
+    <input type="text" id="notion_notes_page" name="notion_notes_page"><br><br>
+    <input type="submit" value="Authorize Notion">
+</form>
+{% endif %}
+{% endblock %}

@@ -1,7 +1,7 @@
 # Talk2Data - Centralized Ecosystem for College Students  
 
 ## Overview  
-**Talk2Data** is a centralized platform designed to simplify the way college students interact with their academic and professional data. By integrating multiple sources like **Notion** and **Gmail**, the platform organizes critical information for better accessibility and management. With the use of **Retrieval-Augmented Generation (RAG)** the application offers an intelligent and seamless way to handle class notes and job applications in a single, unified interface.  
+**Talk2Data** is a centralized platform designed to simplify the way college students interact with their academic and professional data. By integrating multiple sources like **Notion** and **Gmail**, the platform organizes critical information for better accessibility and management. With the use of **Retrieval-Augmented Generation (RAG)** and **personalized Large Language Models (LLMs)**, the application offers an intelligent and seamless way to handle class notes and job applications in a single, unified interface.  
 
 ## Key Features  
 - **Academic Management:** Retrieve, embed, and query notes stored on Notion for a personalized and efficient experience.  
@@ -34,14 +34,14 @@ Talk2Data bridges these gaps by offering a holistic and integrated approach for 
 ---
 
 ## Architecture  
-![Architecture Diagram](images/system_architechture.jpeg)
+![Architecture Diagram](./SystemDesign/architecture-diagram.png)
 
 The system is divided into two primary workflows:  
 
 ### 1. **Notes Flow**  
-![Notes Flow Diagram 1](images/notes_update.png)
+![Notes Flow Diagram 1](./SystemDesign/Notion-data-embeddgin-dataflow-dig.png)
 
-![Notes Flow Diagram 2](images/qanda.jpeg)
+![Notes Flow Diagram 2](./SystemDesign/chatbot-query-response-Dataflow-dig.png)
 - Tracks changes in Notion pages where students store class notes.  
 - Retrieves new/updated data via Notion APIs every 5 minutes.  
 - Converts updated data into embeddings using **VertexAI** and stores them for efficient querying.  
@@ -54,7 +54,7 @@ The system is divided into two primary workflows:
 ---
 
 ### 2. **Application Tracker**  
-![Application Tracker Diagram](images/job_application_updates.jpeg)
+![Application Tracker Diagram](./SystemDesign/Job-Application-tracker-Data-flow-dig.png)
 - Scans Gmail inbox for job-related updates.  
 - Organizes data into Notion databases, tracking deadlines, interviews, and other stages automatically.  
 

@@ -38,6 +38,8 @@ def get_batched_page_details(db, batch):
             curr_pid = page['id']
             curr_let = page['last_edited_time']
             if (curr_pid in fs_page_details and curr_let > fs_page_details[curr_pid]) or curr_pid not in fs_page_details:
+                print(f"\n^^^^^^^^^^^^^^^^^ Found matching page or new page - {page} ^^^^^^^^^^^^^^^^^")
+                print(f"\n^^^^^^^^^^^^^^^^^ From Firestore - {fs_page_details} ^^^^^^^^^^^^^^^^^")
                 processed_batch.append(page)
         except Exception as e:
             print(f"################# This is the Error page - {page}################")
@@ -83,6 +85,7 @@ class ReadNotionDB:
         url = f"{self.url}/blocks/{self.PAGE_ID}/children"
         
         response = requests.get(url, headers=self.headers)
+        print(f"Responses: {response}, sub-pages")
         if response.status_code == 200:
             results = response.json().get('results', [])
             for block in results:
@@ -94,6 +97,7 @@ class ReadNotionDB:
                         "last_edited_time": block['last_edited_time']
                     })
         else:
+            print(f"########## Error - {self.email}, {self.NOTION_API_KEY}, {self.PAGE_ID} #####################")
             raise Exception(f"Failed to fetch sub-pages: {response.status_code}, {response.text}")
 
         return sub_pages
@@ -221,7 +225,7 @@ class ReadNotionDB:
         """
         pages_content = []
         latest_timestamp = None  # To track the most recent created_time of the blocks
-        
+        print(f"Pages: {pages}")
         for page in pages:
             page_dict_to_embed = {
                 "page_id": page['id'],
@@ -234,6 +238,7 @@ class ReadNotionDB:
             url = f"{self.url}/blocks/{page['id']}/children"
             
             response = requests.get(url, headers=self.headers)
+            print(f"Response: ---------------- {response}")
             if response.status_code == 200:
                 all_blocks = response.json().get('results', [])
 
@@ -247,8 +252,6 @@ class ReadNotionDB:
                     # print(block)
                     try:
                         if block['type'] == "file":
-                            if block['last_edited_time'] < page['last_edited_time']:
-                                continue
                             # Add file to list of files for this page
                             page_dict_to_embed['files'].append(block['file']['file']['url'])
                         else:
@@ -256,6 +259,11 @@ class ReadNotionDB:
                             text_parts = block['paragraph']['rich_text']
                             content = "".join([text_part['plain_text']for text_part in text_parts])
                             page_dict_to_embed['content'] += " " + content
+
+                        # Add the latest update time to the dict
+                        block_created_time = block['created_time']
+                        if page_dict_to_embed['last_updated'] < block_created_time:
+                            page_dict_to_embed['last_updated'] = block_created_time
 
                     except Exception as e:
                         print(json.dumps({
@@ -654,6 +662,10 @@ def upload_embeddings(json_data, embeddings, project_id, region, index_id):
         str: Status of the operation.
     """
 
+    #client = aiplatform_v1beta1.IndexEndpointServiceClient()
+    #response = client.list_index_endpoints(parent=f"projects/{project_id}/locations/{region}")
+    #print("HELLLOOOOOO" + response)
+
     client = IndexServiceClient(client_options={"api_endpoint": "us-central1-aiplatform.googleapis.com"})
     index_name = f"projects/{project_id}/locations/{region}/indexes/{index_id}"
 
@@ -692,6 +704,7 @@ def filter_updated_pages(pages):
     final_processed_pages = []
     db = firestore.Client()
     batched_pages = [pages[i:i + 10] for i in range(0, len(pages), 10)]
+    print(f"Batched pages: {batched_pages}")
     for batch in batched_pages:
         processed_batch = get_batched_page_details(db,batch)
         final_processed_pages.extend(processed_batch)
@@ -700,6 +713,7 @@ def filter_updated_pages(pages):
         store_page_details(db,page)
 
     # Final processed pages has the pages that im supposed to query 
+    print(final_processed_pages)
     return final_processed_pages
 
 def get_notion_updates(creds_json):
@@ -716,6 +730,7 @@ def get_notion_updates(creds_json):
     filtered_pages = filter_updated_pages(pages)
 
     updated_content = notion_user.read_entire_sub_page(filtered_pages)
+    print(f"Updated Contents: {updated_content}")
     key = "user_email"
     value = email
     for page in updated_content:
@@ -749,6 +764,10 @@ def process_file_blocks(files):
     return file_content
 
 def process_and_store_embeddings(request):
+    """
+    Cloud Function entry point. Processes JSON input, generates embeddings,
+    and uploads them to Matching Engine.
+    """
     request_json = request.get_json(silent=True)
     if not request_json:
         return jsonify({"error": "Invalid input. JSON data is required."}), 400
@@ -760,27 +779,111 @@ def process_and_store_embeddings(request):
     if not (project_id and index_id):
         return jsonify({"error": "Missing required headers: Project-ID or Index-ID"}), 400
 
-    # Get updates from Notion DB
-    # new_file_blocks, new_text_blocks = get_notion_updates(request_json)
+    # Process each user batch
     for user_creds in request_json['user_batch']:
         updated_content = get_notion_updates(user_creds)
-        print(f"################### This is the Filtered page content - {json.dumps(updated_content)}")
-        # for updated_page in updated_content:
-        embeddings = []
+        if updated_content == []:
+            continue
+        print(f"################### Filtered Page Content: {json.dumps(updated_content)}")
 
-        for updated_page in updated_content:
-        # Pass new file blocks to a store where will be queried by dialogue flow
-            updated_page['content'] += " " + process_file_blocks(updated_page['files'])
-        # embeddings += embed_text([item['content'] for item in new_file_blocks])
-        
-        # Extract content for embedding
-        input_texts = [item["content"] for item in updated_content]
-        print(input_texts)
+        all_chunks_metadata = []
+        all_embeddings = []
 
-        # Generate embeddings
-        embeddings += embed_text(input_texts)
+        # Process each page
+        for page in updated_content:
+            page_id = page["page_id"]
+            email = page["user_email"]
 
-        # Upload embeddings
-        status = upload_embeddings(updated_content, embeddings, project_id, region, index_id)
+            # Combine content with file content
+            page["content"] += " " + process_file_blocks(page.get("files", []))
+
+            # Create overlapping chunks
+            chunk_size = 1000
+            overlap = 100
+            chunks = create_overlapping_character_chunks(page["content"], chunk_size, overlap)
+
+            # Generate embeddings and prepare metadata
+            for idx, chunk in enumerate(chunks, start=1):
+                datapoint_id = f"{email}-{page_id}-{idx}"  # Generate unique datapoint_id
+                embedding = embed_text([chunk])[0]  # Generate embedding for the chunk
+
+                all_chunks_metadata.append({
+                    "user_email": email,
+                    "page_id": page_id,
+                    "content": chunk,
+                    "page_title": page["page_title"],
+                    "last_updated": page["last_updated"],
+                    "datapoint_id": datapoint_id
+                })
+                all_embeddings.append(embedding)
+
+        # Upload embeddings to Matching Engine
+        status = upload_embeddings_v2(all_chunks_metadata, all_embeddings, project_id, region, index_id)
         print(f"\n\n######################################### {status} #########################################")
-    return jsonify({"message": status}), 200
+
+    return jsonify({"message": "Embeddings successfully processed and uploaded."}), 200
+
+def create_overlapping_character_chunks(input_text, chunk_size, overlap):
+    """
+    Create overlapping chunks from a single input string based on character counts.
+
+    Args:
+        input_text (str): The input string to be chunked.
+        chunk_size (int): Maximum number of characters in each chunk.
+        overlap (int): Number of overlapping characters between consecutive chunks.
+
+    Returns:
+        list: List of overlapping text chunks.
+    """
+    chunks = []
+    start = 0
+    while start < len(input_text):
+        end = min(start + chunk_size, len(input_text))
+        chunk = input_text[start:end]
+        chunks.append(chunk)
+        start += chunk_size - overlap  # Move start forward with overlap
+    return chunks
+
+
+def upload_embeddings_v2(json_data, embeddings, project_id, region, index_id):
+    """
+    Upload embeddings to Google Cloud Matching Engine.
+
+    Args:
+        json_data (list): Original data with metadata (user_email, page_title, content, last_updated, etc.).
+        embeddings (list): List of generated embeddings.
+        project_id (str): GCP project ID.
+        region (str): GCP region.
+        index_id (str): Matching Engine Index ID.
+
+    Returns:
+        str: Status of the operation.
+    """
+    client = IndexServiceClient(client_options={"api_endpoint": "us-central1-aiplatform.googleapis.com"})
+    index_name = f"projects/{project_id}/locations/{region}/indexes/{index_id}"
+
+    datapoints = []
+    print(json_data)
+    for i, item in enumerate(json_data):
+        datapoint_id = item["datapoint_id"]
+
+        restrictions = [
+            IndexDatapoint.Restriction(namespace="page_title", allow_list=[item["page_title"]]),
+            IndexDatapoint.Restriction(namespace="content", allow_list=[item["content"]]),
+            IndexDatapoint.Restriction(namespace="last_updated", allow_list=[item["last_updated"]]),
+            IndexDatapoint.Restriction(namespace="user_email", allow_list=[item["user_email"]])
+        ]
+
+        datapoint = IndexDatapoint(
+            datapoint_id=datapoint_id,
+            feature_vector=embeddings[i],
+            restricts=restrictions
+        )
+        print(f"Datapoints: {datapoint}")
+        datapoints.append(datapoint)
+
+    print("\n\n######################################### Starting to upsert #########################################")
+    request = UpsertDatapointsRequest(index=index_name, datapoints=datapoints)
+    client.upsert_datapoints(request=request)
+    print("\n\n######################################### Finished to upsert #########################################")
+    return "Embeddings successfully uploaded to Matching Engine."
