@@ -1,4 +1,4 @@
-# Talk2Data - Centralized Ecosystem for College Students  
+# K.E.V.I.N - Centralized Ecosystem for College Students  
 
 ## Overview  
 **Talk2Data** is a centralized platform designed to simplify the way college students interact with their academic and professional data. By integrating multiple sources like **Notion** and **Gmail**, the platform organizes critical information for better accessibility and management. With the use of **Retrieval-Augmented Generation (RAG)** and **personalized Large Language Models (LLMs)**, the application offers an intelligent and seamless way to handle class notes and job applications in a single, unified interface.  
